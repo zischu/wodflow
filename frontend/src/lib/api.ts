@@ -134,11 +134,31 @@ function pickImage(item: Record<string, unknown>): string | null {
   const raw = item.images
   const images = Array.isArray(raw) ? raw as Record<string, unknown>[] : []
   if (!images.length) return null
-  const main = images.find((image) => image.is_main) ?? images[0]
-  const thumbnails = main.thumbnails && typeof main.thumbnails === 'object' ? main.thumbnails as Record<string, unknown> : {}
-  const rawUrl = String(thumbnails.medium ?? thumbnails.small ?? main.image ?? '')
-  if (!rawUrl) return null
-  try { return new URL(rawUrl, 'https://wger.de/').href } catch { return rawUrl }
+
+  const main = images.find((image) => image.is_main === true) ?? images[0]
+  const thumbnails = main.thumbnails && typeof main.thumbnails === 'object'
+    ? main.thumbnails as Record<string, unknown>
+    : {}
+
+  // Prefer the original image. wger thumbnail URLs can be present before the
+  // generated thumbnail itself is actually available, which otherwise leaves
+  // us with a broken URL. Also ignore empty strings instead of treating them
+  // as a valid nullish-coalescing candidate.
+  const candidates = [main.image, thumbnails.medium, thumbnails.small]
+    .map((value) => typeof value === 'string' ? value.trim() : '')
+    .filter(Boolean)
+
+  for (const candidate of candidates) {
+    try {
+      const url = new URL(candidate, 'https://wger.de/')
+      if (url.protocol === 'http:') url.protocol = 'https:'
+      return url.href
+    } catch {
+      // Try the next candidate.
+    }
+  }
+
+  return null
 }
 
 function mapWgerExercise(item: Record<string, unknown>): ExerciseSearchResult | null {
