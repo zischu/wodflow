@@ -289,3 +289,41 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .repdb-credit:hover, .repdb-attribution:hover { color: #cbd5e1; text-decoration: underline; }
 .modal-foot { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; }
 .repdb-attribution { margin-left: auto; }
+
+/* v0.4.1: version badge and Exercise Manager */
+.sidebar-actions { display: grid; gap: 8px; margin: 18px 0 20px; }
+.sidebar-actions .new-workout-btn { margin: 0; }
+.exercise-manager-btn {
+  width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid #2d4055;
+  background: #0f1821; color: #cbd6e4; display: flex; align-items: center; justify-content: center;
+  gap: 8px; font-weight: 720;
+}
+.exercise-manager-btn:hover { border-color: #597089; background: #16222d; color: var(--text); }
+.sidebar-footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; }
+.sidebar-footer .repdb-credit { margin-top: 0; }
+.app-version { color: #5f6e81; font-size: 10px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+.exercise-manager-modal { width: min(860px, 100%); }
+.exercise-manager-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; padding: 14px 20px 4px; }
+.exercise-manager-stats > div { border: 1px solid var(--line); background: #0d141b; border-radius: 10px; padding: 10px 12px; }
+.exercise-manager-stats span { display: block; color: var(--muted); font-size: 9px; text-transform: uppercase; letter-spacing: .1em; }
+.exercise-manager-stats strong { display: block; margin-top: 4px; font-size: 20px; font-variant-numeric: tabular-nums; }
+.exercise-manager-create { display: grid; grid-template-columns: 1fr auto; gap: 8px; padding: 12px 20px 4px; }
+.exercise-manager-create input { min-width: 0; border: 1px solid #2b394a; border-radius: 10px; background: #0c1219; color: var(--text); padding: 10px 12px; outline: 0; }
+.exercise-manager-create input:focus { border-color: #52677e; }
+.exercise-manager-meta { display: flex; justify-content: space-between; gap: 12px; padding: 3px 20px 2px; color: #6f7d90; font-size: 10px; }
+.exercise-manager-results { min-height: 260px; }
+.exercise-manager-row { width: 100%; display: grid; grid-template-columns: 58px minmax(0, 1fr) 36px; gap: 12px; align-items: center; padding: 8px; border: 1px solid transparent; border-radius: 10px; }
+.exercise-manager-row:hover { background: #17212b; border-color: #2b394a; }
+.exercise-manager-error { margin: 8px 20px 0; }
+
+@media (max-width: 980px) {
+  .sidebar-actions { grid-column: 1 / -1; grid-template-columns: 1fr 1fr; margin: 0; }
+}
+
+@media (max-width: 640px) {
+  .sidebar-actions { grid-column: auto; grid-template-columns: 1fr; }
+  .exercise-manager-stats { grid-template-columns: repeat(2, 1fr); }
+  .exercise-manager-create { grid-template-columns: 1fr; }
+  .exercise-manager-meta { flex-direction: column; gap: 2px; }
+}

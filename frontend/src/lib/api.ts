@@ -231,7 +231,16 @@ export const api = {
 
   deleteWorkout: (id: number) => deleteById(WORKOUTS, id),
 
-  async searchExercises(q: string): Promise<ExerciseSearchResult[]> {
+  async listExercises(limit = 200): Promise<ExerciseSearchResult[]> {
+    const items = await getAll<StoredExercise>(EXERCISES)
+    return items
+      .filter((item) => item.provider !== 'wger')
+      .sort((a, b) => a.name.localeCompare(b.name, 'de-DE'))
+      .slice(0, Math.max(1, limit))
+      .map(({ key: _key, ...item }) => item)
+  },
+
+  async searchExercises(q: string, limit = 24): Promise<ExerciseSearchResult[]> {
     const needle = q.trim().toLocaleLowerCase('de-DE')
     if (!needle) return []
     const items = await getAll<StoredExercise>(EXERCISES)
@@ -242,7 +251,7 @@ export const api = {
         const be = b.name.toLocaleLowerCase('de-DE') === needle ? 0 : 1
         return ae - be || a.name.localeCompare(b.name, 'de-DE')
       })
-      .slice(0, 24)
+      .slice(0, Math.max(1, limit))
       .map(({ key: _key, ...item }) => item)
   },
 
@@ -271,6 +280,16 @@ export const api = {
     tx.objectStore(EXERCISES).put({ ...exercise, key: exerciseKey(exercise) } satisfies StoredExercise)
     await txDone(tx)
     return exercise
+  },
+
+  async deleteExercise(provider: string, providerId: string): Promise<void> {
+    if (provider !== 'local' || providerId.startsWith('builtin-')) {
+      throw new Error('Nur eigene lokale Übungen können gelöscht werden')
+    }
+    const db = await openDb()
+    const tx = db.transaction(EXERCISES, 'readwrite')
+    tx.objectStore(EXERCISES).delete(`${provider}:${providerId}`)
+    await txDone(tx)
   },
 
   syncExercises: () => syncRepDb(),

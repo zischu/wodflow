@@ -1,5 +1,7 @@
 # WODFlow
 
+Current UI version: **v0.4.1**
+
 WODFlow is a local-first Progressive Web App for composing and running interval workouts.
 It is designed to run entirely as a static site on GitHub Pages: no backend, database server,
 or Docker host is required.
@@ -14,6 +16,8 @@ or Docker host is required.
 - Fullscreen workout runner with pause, reset, skip and Wake Lock support
 - Workout history including completed and aborted sessions
 - Local exercise library in IndexedDB
+- Exercise Manager for search, RepDB sync, custom exercise creation and deletion
+- App version displayed directly in the UI
 - Built-in bodyweight exercise seed library
 - RepDB Free sync from the official public dataset; imported exercises remain in IndexedDB
 - Exercise images are cached by the service worker after they have been loaded

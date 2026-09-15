@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
 import { DndContext, type DragEndEvent, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
 import { arrayMove, SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
-import { Activity, Clock3, Dumbbell, FilePlus2, History, Play, Plus, Repeat2, RotateCcw, Save, Trash2, Wifi, WifiOff } from 'lucide-react'
+import { Activity, Clock3, Database, Dumbbell, FilePlus2, History, Play, Plus, Repeat2, RotateCcw, Save, Trash2, Wifi, WifiOff } from 'lucide-react'
 import { api, flushPendingHistory, pendingHistoryCount } from './lib/api'
 import { workoutDuration, formatSeconds } from './lib/time'
 import type { BlockType, Workout, WorkoutBlock, WorkoutHistoryEntry } from './types'
 import { BlockCard } from './components/BlockCard'
 import { WorkoutRunner } from './components/WorkoutRunner'
 import { HistoryPanel } from './components/HistoryPanel'
+import { ExerciseManager } from './components/ExerciseManager'
+import { APP_VERSION } from './version'
 
 const uid = () => crypto.randomUUID()
 
@@ -69,6 +71,7 @@ export default function App() {
   const [library, setLibrary] = useState<Workout[]>([])
   const [history, setHistory] = useState<WorkoutHistoryEntry[]>([])
   const [historyOpen, setHistoryOpen] = useState(false)
+  const [exerciseManagerOpen, setExerciseManagerOpen] = useState(false)
   const [historyPending, setHistoryPending] = useState(pendingHistoryCount())
   const [saveState, setSaveState] = useState('')
   const [runner, setRunner] = useState(false)
@@ -141,9 +144,12 @@ export default function App() {
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <div className="brand"><div className="brand-mark"><Activity size={21} /></div><div><strong>WODFlow</strong><span>workout composer</span></div></div>
+        <div className="brand"><div className="brand-mark"><Activity size={21} /></div><div><strong>WODFlow</strong><span>workout composer · v{APP_VERSION}</span></div></div>
 
-        <button className="new-workout-btn" onClick={() => setWorkout(freshWorkout())}><FilePlus2 size={17} /> Neues WOD</button>
+        <div className="sidebar-actions">
+          <button className="new-workout-btn" onClick={() => setWorkout(freshWorkout())}><FilePlus2 size={17} /> Neues WOD</button>
+          <button className="exercise-manager-btn" onClick={() => setExerciseManagerOpen(true)}><Database size={17} /> Exercise Manager</button>
+        </div>
 
         <section className="block-palette">
           <div className="section-kicker">Block hinzufügen</div>
@@ -172,7 +178,10 @@ export default function App() {
             </div>
           ))}
           <div className={`connection-state ${online ? 'online' : 'offline'}`}>{online ? <Wifi size={13} /> : <WifiOff size={13} />} {online ? 'Local-first · online · RepDB-Sync verfügbar' : 'Offline · WODs, History und Übungen bleiben lokal verfügbar'}</div>
-          <a className="repdb-credit" href="https://repdb.co" target="_blank" rel="noreferrer">Exercise data by RepDB</a>
+          <div className="sidebar-footer">
+            <a className="repdb-credit" href="https://repdb.co" target="_blank" rel="noreferrer">Exercise data by RepDB</a>
+            <span className="app-version">WODFlow v{APP_VERSION}</span>
+          </div>
         </section>
       </aside>
 
@@ -215,6 +224,7 @@ export default function App() {
           {workout.blocks.length === 0 && <div className="empty-composer"><Activity size={34} /><h3>Leere Timeline</h3><p>Wähle links einen Blocktyp aus und stelle ihn anschließend hier ein.</p></div>}
         </div>
       </main>
+      {exerciseManagerOpen && <ExerciseManager open={exerciseManagerOpen} onClose={() => setExerciseManagerOpen(false)} />}
       {runner && <WorkoutRunner workout={workout} onClose={() => setRunner(false)} onHistorySaved={refreshHistory} />}
       {historyOpen && <HistoryPanel
         entries={history}

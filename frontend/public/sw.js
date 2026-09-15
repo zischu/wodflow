@@ -1,4 +1,4 @@
-const VERSION = 'wodflow-pages-v5'
+const VERSION = 'wodflow-pages-v6'
 const STATIC_CACHE = `${VERSION}-static`
 const IMAGE_CACHE = `${VERSION}-images`
 
