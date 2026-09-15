@@ -19,7 +19,24 @@ export function ExercisePicker({ open, onClose, onSelect }: Props) {
 
   useEffect(() => {
     if (!open) return
-    api.exerciseStats().then(setStats).catch(() => undefined)
+    let cancelled = false
+    void (async () => {
+      try {
+        const current = await api.exerciseStats()
+        if (cancelled) return
+        setStats(current)
+        if (current.repdb === 0 && navigator.onLine) {
+          setSyncing(true)
+          await api.syncExercises()
+          if (!cancelled) setStats(await api.exerciseStats())
+        }
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : 'RepDB konnte nicht geladen werden')
+      } finally {
+        if (!cancelled) setSyncing(false)
+      }
+    })()
+    return () => { cancelled = true }
   }, [open])
 
   useEffect(() => {
@@ -80,8 +97,8 @@ export function ExercisePicker({ open, onClose, onSelect }: Props) {
             <p className="library-summary"><Database size={13} /> Lokale Exercise-Datenbank {stats ? `· ${stats.total} Übungen · ${stats.with_images} mit Bild` : ''}</p>
           </div>
           <div className="modal-head-actions">
-            <button className="secondary-btn compact" onClick={syncLibrary} disabled={syncing} title="wger in lokale Datenbank synchronisieren">
-              <RefreshCw size={14} className={syncing ? 'spin' : ''} /> {syncing ? 'Sync …' : 'Sync'}
+            <button className="secondary-btn compact" onClick={syncLibrary} disabled={syncing} title="RepDB Free in die lokale Exercise-Datenbank synchronisieren">
+              <RefreshCw size={14} className={syncing ? 'spin' : ''} /> {syncing ? 'RepDB …' : 'RepDB Sync'}
             </button>
             <button className="icon-btn" onClick={onClose}><X size={20} /></button>
           </div>
@@ -113,7 +130,7 @@ export function ExercisePicker({ open, onClose, onSelect }: Props) {
               </div>
               <div className="exercise-result-copy">
                 <strong>{result.name}</strong>
-                <span>{result.category || 'Übung'} · {result.provider === 'wger' ? 'lokal synchronisiert' : 'lokal'}</span>
+                <span>{result.category || 'Übung'} · {result.provider === 'repdb' ? 'RepDB' : 'lokal'}</span>
               </div>
             </button>
           ))}
@@ -122,6 +139,7 @@ export function ExercisePicker({ open, onClose, onSelect }: Props) {
           <button className="secondary-btn" disabled={!query.trim()} onClick={createCustom}>
             „{query.trim() || 'Eigene Übung'}“ als eigene lokale Übung anlegen
           </button>
+          <a className="repdb-attribution" href="https://repdb.co" target="_blank" rel="noreferrer">Exercise data by RepDB (repdb.co)</a>
         </div>
       </div>
     </div>

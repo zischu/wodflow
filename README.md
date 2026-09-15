@@ -15,7 +15,7 @@ or Docker host is required.
 - Workout history including completed and aborted sessions
 - Local exercise library in IndexedDB
 - Built-in bodyweight exercise seed library
-- Optional online import from the public wger exercise API; imported exercises remain in IndexedDB
+- RepDB Free sync from the official public dataset; imported exercises remain in IndexedDB
 - Exercise images are cached by the service worker after they have been loaded
 - Installable PWA with offline app shell
 - All WODs and history remain on the device in IndexedDB
@@ -37,7 +37,7 @@ React + TypeScript PWA
     |     +-- application shell
     |     `-- viewed exercise images
     |
-    `-- optional wger API import
+    `-- optional RepDB Free dataset sync
 ```
 
 There is no FastAPI or PostgreSQL component in this edition.
@@ -99,7 +99,7 @@ This means:
 ## Exercise library
 
 The first start seeds a small bodyweight library into IndexedDB. The exercise picker can also
-import exercise metadata and image URLs from the public wger API while online. The application
+import exercise metadata and illustration URLs from the official RepDB Free dataset while online. The application
 continues to work if this optional import is unavailable.
 
 ## PWA installation
@@ -107,3 +107,11 @@ continues to work if this optional import is unavailable.
 Open the deployed HTTPS GitHub Pages URL in Chrome/Edge on Android or desktop and use the browser's
 **Install app** action. GitHub Pages provides the HTTPS context required for service workers and
 PWA installation.
+
+
+## RepDB attribution
+
+Exercise data and illustrations are provided by [RepDB](https://repdb.co) Free Tier.
+WODFlow loads the official RepDB dataset from the canonical RepDB repository into the browser's IndexedDB and does not republish the dataset as a standalone dataset or API.
+
+**Exercise data by RepDB (repdb.co)**

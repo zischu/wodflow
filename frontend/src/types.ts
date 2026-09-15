@@ -66,12 +66,13 @@ export interface ExerciseSearchResult {
   category?: string | null
   equipment: string[]
   description?: string | null
+  aliases?: string[]
 }
 
 export interface ExerciseLibraryStats {
   total: number
   local: number
-  wger: number
+  repdb: number
   with_images: number
 }
 

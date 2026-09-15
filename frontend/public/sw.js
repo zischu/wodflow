@@ -1,4 +1,4 @@
-const VERSION = 'wodflow-pages-v4'
+const VERSION = 'wodflow-pages-v5'
 const STATIC_CACHE = `${VERSION}-static`
 const IMAGE_CACHE = `${VERSION}-images`
 
@@ -55,7 +55,7 @@ self.addEventListener('fetch', (event) => {
   if (request.method !== 'GET') return
   const url = new URL(request.url)
 
-  // Cache exercise graphics, including cross-origin images imported from wger.
+  // Cache exercise graphics, including cross-origin illustrations loaded from RepDB.
   if (request.destination === 'image') {
     event.respondWith(cacheFirst(request, IMAGE_CACHE))
     return

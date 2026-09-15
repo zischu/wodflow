@@ -171,7 +171,8 @@ export default function App() {
               <button className="library-delete" onClick={() => item.id && removeSaved(item.id)}><Trash2 size={14} /></button>
             </div>
           ))}
-          <div className={`connection-state ${online ? 'online' : 'offline'}`}>{online ? <Wifi size={13} /> : <WifiOff size={13} />} {online ? 'Local-first · online · wger-Sync verfügbar' : 'Offline · WODs, History und Übungen bleiben lokal verfügbar'}</div>
+          <div className={`connection-state ${online ? 'online' : 'offline'}`}>{online ? <Wifi size={13} /> : <WifiOff size={13} />} {online ? 'Local-first · online · RepDB-Sync verfügbar' : 'Offline · WODs, History und Übungen bleiben lokal verfügbar'}</div>
+          <a className="repdb-credit" href="https://repdb.co" target="_blank" rel="noreferrer">Exercise data by RepDB</a>
         </section>
       </aside>
 

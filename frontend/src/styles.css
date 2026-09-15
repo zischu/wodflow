@@ -282,3 +282,10 @@ button:disabled { cursor: not-allowed; opacity: .55; }
   .history-row .secondary-btn { grid-column: 2; justify-self: start; }
   .history-row > .icon-btn { grid-column: 3; grid-row: 1; }
 }
+
+/* RepDB attribution */
+.repdb-credit, .repdb-attribution { color: #8391a4; font-size: 10px; text-decoration: none; }
+.repdb-credit { display: inline-block; margin: 10px 2px 0; }
+.repdb-credit:hover, .repdb-attribution:hover { color: #cbd5e1; text-decoration: underline; }
+.modal-foot { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; }
+.repdb-attribution { margin-left: auto; }

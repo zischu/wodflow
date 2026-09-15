@@ -122,95 +122,77 @@ function writePendingHistory(items: WorkoutHistoryInput[]) {
   localStorage.setItem(HISTORY_QUEUE_KEY, JSON.stringify(items))
 }
 
-function pickTranslation(item: Record<string, unknown>): Record<string, unknown> | null {
-  const raw = item.translations ?? item.translation
-  const translations = Array.isArray(raw) ? raw as Record<string, unknown>[] : raw && typeof raw === 'object' ? [raw as Record<string, unknown>] : []
-  if (!translations.length) return null
-  const english = translations.find((entry) => ['2', 'en', 'en-US'].includes(String(entry.language)))
-  return english ?? translations[0]
+const REPDB_DATA_URL = 'https://raw.githubusercontent.com/RepDB/exercise-dataset/main/exercises.json'
+const REPDB_ASSET_BASE = 'https://raw.githubusercontent.com/RepDB/exercise-dataset/main/'
+
+function asString(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : ''
 }
 
-function pickImage(item: Record<string, unknown>): string | null {
-  const raw = item.images
-  const images = Array.isArray(raw) ? raw as Record<string, unknown>[] : []
-  if (!images.length) return null
-
-  const main = images.find((image) => image.is_main === true) ?? images[0]
-  const thumbnails = main.thumbnails && typeof main.thumbnails === 'object'
-    ? main.thumbnails as Record<string, unknown>
-    : {}
-
-  // Prefer the original image. wger thumbnail URLs can be present before the
-  // generated thumbnail itself is actually available, which otherwise leaves
-  // us with a broken URL. Also ignore empty strings instead of treating them
-  // as a valid nullish-coalescing candidate.
-  const candidates = [main.image, thumbnails.medium, thumbnails.small]
-    .map((value) => typeof value === 'string' ? value.trim() : '')
-    .filter(Boolean)
-
-  for (const candidate of candidates) {
-    try {
-      const url = new URL(candidate, 'https://wger.de/')
-      if (url.protocol === 'http:') url.protocol = 'https:'
-      return url.href
-    } catch {
-      // Try the next candidate.
-    }
-  }
-
-  return null
+function repDbImageUrl(item: Record<string, unknown>): string | null {
+  const images = item.images && typeof item.images === 'object' ? item.images as Record<string, unknown> : {}
+  const flat = images.flat && typeof images.flat === 'object' ? images.flat as Record<string, unknown> : {}
+  const relative = asString(flat.peak) || asString(flat.main) || asString(flat.start)
+  if (!relative) return null
+  try { return new URL(relative, REPDB_ASSET_BASE).href } catch { return null }
 }
 
-function mapWgerExercise(item: Record<string, unknown>): ExerciseSearchResult | null {
-  const translation = pickTranslation(item)
-  const name = String(translation?.name ?? translation?.name_original ?? item.name ?? '').trim()
-  if (!name) return null
-  const rawCategory = item.category
-  const category = rawCategory && typeof rawCategory === 'object' ? String((rawCategory as Record<string, unknown>).name ?? '') : rawCategory ? String(rawCategory) : null
-  const rawEquipment = Array.isArray(item.equipment) ? item.equipment : []
-  const equipment = rawEquipment.map((value) => typeof value === 'object' && value ? String((value as Record<string, unknown>).name ?? '') : String(value)).filter(Boolean)
-  const providerId = String(item.id ?? item.uuid ?? name)
+function mapRepDbExercise(item: Record<string, unknown>): ExerciseSearchResult | null {
+  const nameDe = asString(item.name_de)
+  const nameEn = asString(item.name_en)
+  const nameEs = asString(item.name_es)
+  const name = nameDe || nameEn || nameEs
+  const providerId = asString(item.id)
+  if (!name || !providerId) return null
+
+  const equipmentRaw = item.equipment
+  const equipment = Array.isArray(equipmentRaw)
+    ? equipmentRaw.map(asString).filter(Boolean)
+    : asString(equipmentRaw) ? [asString(equipmentRaw)] : []
+
+  const aliases = [nameDe, nameEn, nameEs].filter((value, index, values) => value && values.indexOf(value) === index)
+  const category = asString(item.category) || asString(item.body_part) || null
+  const description = asString(item.description_de) || asString(item.description_en) || asString(item.description_es) || null
+
   return {
-    provider: 'wger',
+    provider: 'repdb',
     provider_id: providerId,
     name,
-    image_url: pickImage(item),
+    aliases,
+    image_url: repDbImageUrl(item),
     category,
     equipment,
-    description: typeof translation?.description === 'string' ? translation.description.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim() : null,
+    description,
   }
 }
 
-async function syncWger(maxPages = 5): Promise<ExerciseSyncResult> {
-  let fetched = 0
-  let upserted = 0
-  let offset = 0
-  const limit = 100
+async function syncRepDb(): Promise<ExerciseSyncResult> {
+  const response = await fetch(REPDB_DATA_URL, { headers: { Accept: 'application/json' } })
+  if (!response.ok) throw new Error(`RepDB Sync fehlgeschlagen (${response.status})`)
+  const payload = await response.json() as { exercises?: Record<string, unknown>[] }
+  const items = payload.exercises ?? []
+  if (!items.length) throw new Error('RepDB lieferte keine Übungen')
+
+  const mapped = items.map(mapRepDbExercise).filter((item): item is ExerciseSearchResult => Boolean(item))
   const db = await openDb()
 
-  for (let page = 0; page < maxPages; page += 1) {
-    const response = await fetch(`https://wger.de/api/v2/exerciseinfo/?limit=${limit}&offset=${offset}`, { headers: { Accept: 'application/json' } })
-    if (!response.ok) throw new Error(`wger Sync fehlgeschlagen (${response.status})`)
-    const payload = await response.json() as { results?: Record<string, unknown>[]; next?: string | null }
-    const items = payload.results ?? []
-    if (!items.length) break
+  // Replace old external-provider data atomically enough for a local-first app:
+  // keep custom/built-in exercises, remove legacy wger and stale RepDB entries.
+  const readTx = db.transaction(EXERCISES, 'readonly')
+  const existing = await req(readTx.objectStore(EXERCISES).getAll()) as StoredExercise[]
+  await txDone(readTx)
 
-    const tx = db.transaction(EXERCISES, 'readwrite')
-    const store = tx.objectStore(EXERCISES)
-    for (const item of items) {
-      const exercise = mapWgerExercise(item)
-      if (!exercise) continue
-      fetched += 1
-      const stored: StoredExercise = { ...exercise, key: exerciseKey(exercise) }
-      store.put(stored)
-      upserted += 1
-    }
-    await txDone(tx)
-    if (!payload.next || items.length < limit) break
-    offset += limit
+  const writeTx = db.transaction(EXERCISES, 'readwrite')
+  const store = writeTx.objectStore(EXERCISES)
+  for (const exercise of existing) {
+    if (exercise.provider === 'wger' || exercise.provider === 'repdb') store.delete(exercise.key)
   }
+  for (const exercise of mapped) {
+    store.put({ ...exercise, key: exerciseKey(exercise) } satisfies StoredExercise)
+  }
+  await txDone(writeTx)
 
-  return { fetched, upserted, images_cached: 0, image_errors: 0 }
+  return { fetched: items.length, upserted: mapped.length, images_cached: 0, image_errors: 0 }
 }
 
 export const api = {
@@ -254,7 +236,7 @@ export const api = {
     if (!needle) return []
     const items = await getAll<StoredExercise>(EXERCISES)
     return items
-      .filter((item) => item.name.toLocaleLowerCase('de-DE').includes(needle))
+      .filter((item) => item.provider !== 'wger' && [item.name, ...(item.aliases ?? [])].some((value) => value.toLocaleLowerCase('de-DE').includes(needle)))
       .sort((a, b) => {
         const ae = a.name.toLocaleLowerCase('de-DE') === needle ? 0 : 1
         const be = b.name.toLocaleLowerCase('de-DE') === needle ? 0 : 1
@@ -269,7 +251,7 @@ export const api = {
     return {
       total: items.length,
       local: items.filter((item) => item.provider === 'local').length,
-      wger: items.filter((item) => item.provider === 'wger').length,
+      repdb: items.filter((item) => item.provider === 'repdb').length,
       with_images: items.filter((item) => Boolean(item.image_url)).length,
     }
   },
@@ -291,7 +273,7 @@ export const api = {
     return exercise
   },
 
-  syncExercises: () => syncWger(),
+  syncExercises: () => syncRepDb(),
 
   async listHistory(): Promise<WorkoutHistoryEntry[]> {
     const items = await getAll<WorkoutHistoryEntry>(HISTORY)
