@@ -71,7 +71,8 @@ export interface ExerciseSearchResult {
 
 export interface ExerciseLibraryStats {
   total: number
-  local: number
+  builtin: number
+  custom: number
   repdb: number
   with_images: number
 }

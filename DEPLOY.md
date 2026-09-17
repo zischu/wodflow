@@ -36,3 +36,17 @@ https://<USER>.github.io/wodflow/
 
 Open the Pages URL in a browser that supports PWA installation and select **Install app**.
 After the first successful load, the application shell is available offline.
+
+## Update einer bestehenden Installation
+
+Nach dem Einspielen eines Patches genügt:
+
+```bash
+git add .
+git commit -m "Fix timer reliability and mobile UX"
+git push
+gh run watch
+```
+
+WODFlow verwendet die Paketversion zur Service-Worker-Invalidierung. Nach erfolgreichem
+Deployment die installierte PWA einmal vollständig schließen und erneut öffnen.

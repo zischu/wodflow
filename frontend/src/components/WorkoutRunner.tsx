@@ -1,135 +1,58 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Pause, Play, RotateCcw, SkipForward, X } from 'lucide-react'
-import type { EmomInterval, ExerciseRef, Workout, WorkoutBlock } from '../types'
+import { Check, Pause, Play, RotateCcw, SkipForward, X } from 'lucide-react'
+import type { Workout } from '../types'
 import { saveHistoryWithFallback } from '../lib/api'
 import { formatSeconds } from '../lib/time'
+import { useDialog } from '../lib/dialog'
+import { ExerciseArtwork } from './ExerciseArtwork'
+import { advanceCountdown, buildPhases, type RunnerPhase } from '../lib/runner'
 
-type Phase = {
-  blockIndex: number
-  block: WorkoutBlock
-  label: string
-  seconds: number
-  exercises: ExerciseRef[]
-  round?: number
-  phase: 'work' | 'rest' | 'timer' | 'amrap' | 'emom'
+const PHASE_LABELS: Record<RunnerPhase['phase'], string> = {
+  work: 'ARBEIT',
+  rest: 'PAUSE',
+  timer: 'TIMER',
+  amrap: 'AMRAP',
+  emom: 'EMOM',
 }
 
-function legacyEmomInterval(block: Extract<WorkoutBlock, { type: 'emom' }>): EmomInterval {
-  return {
-    id: `${block.id}-legacy`,
-    name: 'Minute 1',
-    duration_seconds: block.interval_seconds ?? 60,
-    exercises: block.exercises ?? [],
-  }
-}
+type WakeLockSentinel = { release: () => Promise<void>; released?: boolean }
 
-export function buildPhases(workout: Workout): Phase[] {
-  const phases: Phase[] = []
-  workout.blocks.forEach((block, blockIndex) => {
-    if (block.type === 'timer') {
-      phases.push({ blockIndex, block, label: block.name, seconds: block.duration_seconds, exercises: block.exercises, phase: 'timer' })
-    } else if (block.type === 'amrap') {
-      phases.push({ blockIndex, block, label: block.name, seconds: block.duration_seconds, exercises: block.exercises, phase: 'amrap' })
-    } else if (block.type === 'emom') {
-      const intervals = block.intervals?.length ? block.intervals : [legacyEmomInterval(block)]
-      for (let cycle = 1; cycle <= block.rounds; cycle++) {
-        intervals.forEach((interval, intervalIndex) => {
-          phases.push({
-            blockIndex,
-            block,
-            label: `${interval.name || `Intervall ${intervalIndex + 1}`} · Zyklus ${cycle}/${block.rounds}`,
-            seconds: interval.duration_seconds,
-            exercises: interval.exercises,
-            round: cycle,
-            phase: 'emom',
-          })
-        })
-      }
-    } else {
-      for (let round = 1; round <= block.rounds; round++) {
-        block.exercises.forEach((exercise) => {
-          phases.push({ blockIndex, block, label: `${exercise.name} · Runde ${round}/${block.rounds}`, seconds: block.work_seconds, exercises: [exercise], round, phase: 'work' })
-          if (block.rest_seconds > 0) phases.push({ blockIndex, block, label: 'Rest', seconds: block.rest_seconds, exercises: [exercise], round, phase: 'rest' })
-        })
-      }
-    }
-  })
-  return phases
-}
-
-export function WorkoutRunner({ workout, onClose, onHistorySaved }: { workout: Workout; onClose: () => void; onHistorySaved?: () => void }) {
+export function WorkoutRunner({
+  workout,
+  onClose,
+  onHistorySaved,
+}: {
+  workout: Workout
+  onClose: () => void
+  onHistorySaved?: () => void
+}) {
   const phases = useMemo(() => buildPhases(workout), [workout])
+  const initialMs = (phases[0]?.seconds ?? 0) * 1000
+
   const [phaseIndex, setPhaseIndex] = useState(0)
-  const [remaining, setRemaining] = useState(phases[0]?.seconds ?? 0)
+  const [remainingMs, setRemainingMs] = useState(initialMs)
   const [running, setRunning] = useState(false)
   const [elapsed, setElapsed] = useState(0)
-  const elapsedRef = useRef(0)
   const [completed, setCompleted] = useState(false)
-  const lastTick = useRef<number | null>(null)
+
+  const phaseIndexRef = useRef(0)
+  const remainingMsRef = useRef(initialMs)
+  const elapsedMsRef = useRef(0)
+  const lastTickRef = useRef<number | null>(null)
   const startedAt = useRef<Date | null>(null)
   const finalized = useRef(false)
-  const wakeLock = useRef<{ release: () => Promise<void> } | null>(null)
+  const runningRef = useRef(false)
+  const wakeLock = useRef<WakeLockSentinel | null>(null)
+  const wakeLockRequestPending = useRef(false)
   const phase = phases[phaseIndex]
 
-  useEffect(() => {
-    setRemaining(phases[phaseIndex]?.seconds ?? 0)
-    lastTick.current = null
-  }, [phaseIndex, phases])
-
-  useEffect(() => {
-    if (!running || !phase) return
-    const timer = window.setInterval(() => {
-      const now = Date.now()
-      if (lastTick.current == null) {
-        lastTick.current = now
-        return
-      }
-      const step = Math.floor((now - lastTick.current) / 1000)
-      if (step < 1) return
-      lastTick.current += step * 1000
-      elapsedRef.current += step
-      setElapsed(elapsedRef.current)
-      setRemaining((old) => {
-        const next = old - step
-        if (next > 0) return next
-        window.setTimeout(() => {
-          if (phaseIndex >= phases.length - 1) {
-            setRunning(false)
-            setCompleted(true)
-            void finalize('completed', phases.length)
-          } else {
-            setPhaseIndex((i) => i + 1)
-          }
-        }, 0)
-        return 0
-      })
-    }, 200)
-    return () => window.clearInterval(timer)
-  // finalize intentionally reads refs/state at the time it is called.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [running, phase, phaseIndex, phases.length])
-
-  useEffect(() => {
-    async function updateWakeLock() {
-      if (running && 'wakeLock' in navigator) {
-        try {
-          wakeLock.current = await (navigator as Navigator & { wakeLock: { request: (type: 'screen') => Promise<{ release: () => Promise<void> }> } }).wakeLock.request('screen')
-        } catch { /* Browser/OS may reject wake lock. */ }
-      } else if (wakeLock.current) {
-        await wakeLock.current.release().catch(() => undefined)
-        wakeLock.current = null
-      }
-    }
-    void updateWakeLock()
-    return () => { void wakeLock.current?.release().catch(() => undefined) }
-  }, [running])
-
-  if (!phase) return null
-  const progress = phase.seconds > 0 ? (phase.seconds - remaining) / phase.seconds : 0
+  runningRef.current = running
+  useDialog(true, () => { void close() })
 
   async function finalize(status: 'completed' | 'aborted', completedPhases: number) {
     if (!startedAt.current || finalized.current) return
     finalized.current = true
+
     await saveHistoryWithFallback({
       workout_id: workout.id ?? null,
       workout_title: workout.title,
@@ -137,65 +60,225 @@ export function WorkoutRunner({ workout, onClose, onHistorySaved }: { workout: W
       status,
       started_at: startedAt.current.toISOString(),
       finished_at: new Date().toISOString(),
-      elapsed_seconds: elapsedRef.current,
-      completed_phases: completedPhases,
+      elapsed_seconds: Math.floor(elapsedMsRef.current / 1000),
+      completed_phases: Math.min(phases.length, Math.max(0, completedPhases)),
       total_phases: phases.length,
     })
     onHistorySaved?.()
   }
 
+  function applyPhase(index: number, milliseconds: number) {
+    phaseIndexRef.current = index
+    remainingMsRef.current = Math.max(0, milliseconds)
+    setPhaseIndex(index)
+    setRemainingMs(Math.max(0, milliseconds))
+  }
+
+  function finishWorkout() {
+    setRunning(false)
+    runningRef.current = false
+    setCompleted(true)
+    remainingMsRef.current = 0
+    setRemainingMs(0)
+    lastTickRef.current = null
+    void finalize('completed', phases.length)
+  }
+
+  useEffect(() => {
+    if (!running || phases.length === 0) return
+
+    lastTickRef.current = Date.now()
+    const timer = window.setInterval(() => {
+      if (!runningRef.current) return
+      const now = Date.now()
+      const previous = lastTickRef.current ?? now
+      let delta = Math.max(0, now - previous)
+      lastTickRef.current = now
+      if (delta === 0) return
+
+      const next = advanceCountdown(
+        phases,
+        phaseIndexRef.current,
+        remainingMsRef.current,
+        delta,
+      )
+
+      elapsedMsRef.current += next.consumedMs
+      setElapsed(Math.floor(elapsedMsRef.current / 1000))
+
+      if (next.finished) {
+        phaseIndexRef.current = next.phaseIndex
+        setPhaseIndex(next.phaseIndex)
+        finishWorkout()
+      } else {
+        applyPhase(next.phaseIndex, next.remainingMs)
+      }
+    }, 200)
+
+    return () => window.clearInterval(timer)
+  }, [running, phases])
+
+  async function requestWakeLock() {
+    if (!runningRef.current || document.visibilityState !== 'visible' || !('wakeLock' in navigator)) return
+    if (wakeLockRequestPending.current || (wakeLock.current && !wakeLock.current.released)) return
+
+    wakeLockRequestPending.current = true
+    try {
+      const sentinel = await (navigator as Navigator & {
+        wakeLock: { request: (type: 'screen') => Promise<WakeLockSentinel> }
+      }).wakeLock.request('screen')
+      if (!runningRef.current) {
+        await sentinel.release().catch(() => undefined)
+        return
+      }
+      wakeLock.current = sentinel
+    } catch {
+      wakeLock.current = null
+    } finally {
+      wakeLockRequestPending.current = false
+    }
+  }
+
+  useEffect(() => {
+    if (running) {
+      void requestWakeLock()
+    } else if (wakeLock.current) {
+      void wakeLock.current.release().catch(() => undefined)
+      wakeLock.current = null
+    }
+  }, [running])
+
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && runningRef.current) void requestWakeLock()
+    }
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+      void wakeLock.current?.release().catch(() => undefined)
+      wakeLock.current = null
+    }
+  }, [])
+
   function reset() {
     finalized.current = false
     startedAt.current = null
     setRunning(false)
+    runningRef.current = false
     setCompleted(false)
-    elapsedRef.current = 0
+    elapsedMsRef.current = 0
     setElapsed(0)
-    setPhaseIndex(0)
-    setRemaining(phases[0]?.seconds ?? 0)
-    lastTick.current = null
+    applyPhase(0, (phases[0]?.seconds ?? 0) * 1000)
+    lastTickRef.current = null
   }
 
   function toggleRunning() {
+    if (completed || phases.length === 0) return
     if (!startedAt.current) startedAt.current = new Date()
-    setRunning((x) => !x)
-    lastTick.current = null
+    setRunning((current) => {
+      const next = !current
+      runningRef.current = next
+      return next
+    })
+    lastTickRef.current = null
   }
 
-  function close() {
-    if (startedAt.current && !finalized.current && !completed) void finalize('aborted', phaseIndex)
+  function skip() {
+    if (completed || phases.length === 0) return
+    const nextIndex = phaseIndexRef.current + 1
+    if (nextIndex >= phases.length) {
+      finishWorkout()
+      return
+    }
+    applyPhase(nextIndex, phases[nextIndex].seconds * 1000)
+    lastTickRef.current = runningRef.current ? Date.now() : null
+  }
+
+  async function close() {
+    if (startedAt.current && !completed && !finalized.current) {
+      const shouldClose = window.confirm('Laufendes Workout beenden und als abgebrochen speichern?')
+      if (!shouldClose) return
+      setRunning(false)
+      runningRef.current = false
+      lastTickRef.current = null
+      await finalize('aborted', phaseIndexRef.current)
+    }
     onClose()
   }
 
+  if (!phase) {
+    return (
+      <div className="runner-shell runner-empty" role="dialog" aria-modal="true" aria-labelledby="runner-empty-title">
+        <div>
+          <h1 id="runner-empty-title">Kein ausführbarer Ablauf</h1>
+          <p>Prüfe die Blöcke und füge den Work-/Rest-Blöcken Übungen hinzu.</p>
+          <button type="button" className="primary-btn" onClick={onClose}>Zurück zum Editor</button>
+        </div>
+      </div>
+    )
+  }
+
+  const remainingSeconds = Math.ceil(remainingMs / 1000)
+  const progress = phase.seconds > 0 ? 1 - remainingMs / (phase.seconds * 1000) : 0
+  const heroExercise = !completed && phase.exercises.length === 1 ? phase.exercises[0] : null
+
   return (
-    <div className="runner-shell">
+    <div className="runner-shell" role="dialog" aria-modal="true" aria-labelledby="runner-title">
       <div className="runner-top">
         <div>
           <span className="runner-kicker">WODFLOW · LIVE</span>
-          <h2>{workout.title}</h2>
+          <h2 id="runner-title">{workout.title}</h2>
         </div>
-        <button className="icon-btn light" onClick={close}><X size={22} /></button>
+        <button type="button" className="icon-btn light" onClick={() => void close()} aria-label="Workout schließen">
+          <X size={22} />
+        </button>
       </div>
 
       <div className="runner-center">
-        <div className={`phase-pill phase-${phase.phase}`}>{completed ? 'COMPLETED' : phase.phase.toUpperCase()}</div>
+        <div className={`phase-pill phase-${phase.phase}`}>
+          {completed ? 'ABGESCHLOSSEN' : PHASE_LABELS[phase.phase]}
+        </div>
         <h1>{completed ? 'Workout abgeschlossen' : phase.label}</h1>
-        {!completed && phase.exercises.length === 1 && phase.exercises[0].image_url && <img className="runner-exercise-image" src={phase.exercises[0].image_url ?? ''} alt="" />}
-        <div className="big-time">{formatSeconds(remaining)}</div>
-        <div className="progress-track"><div className="progress-fill" style={{ width: `${Math.min(100, Math.max(0, progress * 100))}%` }} /></div>
+
+        {heroExercise?.image_url && (
+          <div className="runner-exercise-image">
+            <ExerciseArtwork src={heroExercise.image_url} name={heroExercise.name} eager />
+          </div>
+        )}
+
+        {completed && <span className="runner-complete-label">Aktive Trainingszeit</span>}
+        <div className="big-time">{formatSeconds(completed ? elapsed : remainingSeconds)}</div>
+
+        <div
+          className="progress-track"
+          role="progressbar"
+          aria-label="Fortschritt des aktuellen Intervalls"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={completed ? 100 : Math.round(Math.min(1, Math.max(0, progress)) * 100)}
+        >
+          <div
+            className="progress-fill"
+            style={{ width: `${completed ? 100 : Math.min(100, Math.max(0, progress * 100))}%` }}
+          />
+        </div>
+
         <div className="runner-stats">
           <span>Block {phase.blockIndex + 1}/{workout.blocks.length}</span>
           <span>Phase {phaseIndex + 1}/{phases.length}</span>
+          {phase.round && <span>{phase.phase === 'emom' ? 'Zyklus' : 'Runde'} {phase.round}/{phase.block.type === 'emom' || phase.block.type === 'rounds' ? phase.block.rounds : phase.round}</span>}
           <span>Aktiv {formatSeconds(elapsed)}</span>
         </div>
 
         {!completed && phase.exercises.length > 0 && (
           <div className="runner-exercises">
-            {phase.exercises.map((exercise, i) => (
-              <div className="runner-exercise" key={`${exercise.name}-${i}`}>
-                <div className="runner-mini-image">{exercise.image_url ? <img src={exercise.image_url} alt="" /> : exercise.name.slice(0, 1)}</div>
+            {phase.exercises.map((exercise, index) => (
+              <div className="runner-exercise" key={`${exercise.provider_id ?? exercise.name}-${index}`}>
+                <div className="runner-mini-image">
+                  <ExerciseArtwork src={exercise.image_url} name={exercise.name} />
+                </div>
                 <span>{exercise.name}</span>
-                {exercise.reps && <strong>{exercise.reps} reps</strong>}
+                {exercise.reps != null && <strong>{exercise.reps} Wdh.</strong>}
               </div>
             ))}
           </div>
@@ -203,11 +286,20 @@ export function WorkoutRunner({ workout, onClose, onHistorySaved }: { workout: W
       </div>
 
       <div className="runner-controls">
-        <button className="round-control" onClick={reset}><RotateCcw size={22} /></button>
-        <button className="play-control" onClick={toggleRunning} disabled={completed}>
-          {running ? <Pause size={32} /> : <Play size={32} fill="currentColor" />}
+        <button type="button" className="round-control" onClick={reset} aria-label="Workout zurücksetzen" title="Zurücksetzen">
+          <RotateCcw size={22} />
         </button>
-        <button className="round-control" disabled={completed} onClick={() => setPhaseIndex((i) => Math.min(phases.length - 1, i + 1))}><SkipForward size={22} /></button>
+        <button
+          type="button"
+          className="play-control"
+          onClick={completed ? () => void close() : toggleRunning}
+          aria-label={completed ? 'Workout schließen' : running ? 'Pausieren' : 'Starten'}
+        >
+          {completed ? <Check size={32} /> : running ? <Pause size={32} /> : <Play size={32} fill="currentColor" />}
+        </button>
+        <button type="button" className="round-control" disabled={completed} onClick={skip} aria-label="Aktuelle Phase überspringen" title="Überspringen">
+          <SkipForward size={22} />
+        </button>
       </div>
     </div>
   )
